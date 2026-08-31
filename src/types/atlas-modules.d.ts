@@ -55,6 +55,24 @@ declare module '*/lib/llm/index.mjs' {
   export function createLLMProvider(cfg: AtlasConfig['llm']): LLMProviderLike | null;
 }
 
+declare module '*/lib/llm/tarka.mjs' {
+  export class TarkaProvider {
+    constructor(config: { apiKey?: string | null; model?: string | null; baseUrl?: string | null });
+    name: string;
+    model: string | null;
+    get isConfigured(): boolean;
+    complete(
+      systemPrompt: string,
+      userMessage: string,
+      opts?: { maxTokens?: number; timeout?: number; json?: boolean },
+    ): Promise<{
+      text: string;
+      usage: { inputTokens: number; outputTokens: number };
+      model: string;
+    }>;
+  }
+}
+
 declare module '*/lib/llm/ideas.mjs' {
   import type { HazardRead, HazardSnapshot, LLMProviderLike, SweepDelta } from '@/types';
   export function generateLLMIdeas(
@@ -93,8 +111,14 @@ declare module '*/apis/utils/flood-scope.mjs' {
   export const EVENT_START: string;
   /** The districts the desk covers, with the ids BIPAD files them under. */
   export const AFFECTED_DISTRICTS: ReadonlyArray<{ id: number; en: string; ne: string }>;
+  export const DISTRICT_PINS: Record<string, { lat: number; lon: number }>;
   export const CORRIDOR_BBOX: { minLat: number; maxLat: number; minLon: number; maxLon: number };
   export function inCorridor(lat: number | null, lon: number | null): boolean;
+  export function districtPinForText(text: string | null | undefined): {
+    district: string;
+    lat: number;
+    lon: number;
+  } | null;
 }
 
 declare module '*/apis/utils/nepal.mjs' {
@@ -150,6 +174,14 @@ declare module '*/lib/news-digest.mjs' {
     items: Array<Pick<NewsItem, 'title' | 'source'> & Partial<NewsItem>>,
     lang: string,
   ): DigestDraft;
+  /** Detect the actual Nepali or English wire language from the draft text. */
+  export function detectDigestLanguage(draft: DigestDraft): 'en' | 'ne';
+  /** Resolve the language that may truthfully label the returned draft. */
+  export function resolveDigestLanguage(
+    draft: DigestDraft,
+    requestedLang: string,
+    translated: boolean,
+  ): string;
   /** Carry a finished brief into another language, changing nothing else. */
   export function translateDigest(
     provider: LLMProviderLike | null,
@@ -164,6 +196,7 @@ declare module '*/apis/sources/ndrrma.mjs' {
   export function getRescuedPersons(): Promise<RescuedPerson[]>;
   export function getRescueSummary(): Promise<RescueSummary>;
   export function getRescueLocations(): Promise<{ rescued: RescuePlace[]; stationed: RescuePlace[] }>;
+  export function getRescueMessages(): Promise<Array<{ title: string | null; titleNe: string | null }>>;
   export function getRescueRegister(): Promise<RescueRegister>;
 }
 
@@ -321,6 +354,34 @@ declare module '*/apis/sources/rescue-portal.mjs' {
   }>;
 }
 
+declare module '*/apis/sources/bulletin-sitrep.mjs' {
+  import type { BulletinSitrep } from '@/types';
+  export function parseBulletinFigure(raw: unknown): { value: number; suffix?: string } | null;
+  export function getBulletinSitrep(): Promise<BulletinSitrep>;
+}
+
+declare module '*/apis/sources/bulletin-damage.mjs' {
+  import type { BulletinDamage, DamageGradeRow, DamageImage, SitrepHeadline } from '@/types';
+  export function parseDamageFigure(
+    raw: unknown,
+  ): { value: number; suffix?: string; approximate?: boolean } | null;
+  export function plantsTableHtml(html: string): string | null;
+  export function parseCopernicusTable(html: string, dict?: { ne?: Record<string, string>; en?: Record<string, string> }): DamageGradeRow[];
+  export function parseCopernicusKpis(html: string, dict?: { ne?: Record<string, string>; en?: Record<string, string> }): SitrepHeadline[];
+  export function classifyCopernicusMap(src: string): 'overview' | 'detail' | 'infographic' | null;
+  export function parseBulletinFigures(html: string): Array<{
+    id: string;
+    src: string;
+    href: string | null;
+    alt: string;
+    caption_en: string | null;
+    caption_ne: string | null;
+  }>;
+  export function collectCopernicusMaps(html: string, photosHtml?: string, listed?: string[]): DamageImage[];
+  export function parseAoiPhotos(html: string): DamageImage[];
+  export function getBulletinDamage(): Promise<BulletinDamage>;
+}
+
 declare module '*/apis/sources/ndrrma-bulletin.mjs' {
   import type { SourceRef } from '@/types';
   export interface NdrrmaBulletinRaw {
@@ -408,5 +469,3 @@ declare module '*/apis/utils/fetch.mjs' {
   export function today(): string;
   export function daysAgo(n: number): string;
 }
-
-

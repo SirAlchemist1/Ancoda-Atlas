@@ -3,17 +3,20 @@
 import React, { useEffect, useState } from 'react';
 import FloodShell from '@/components/FloodShell';
 import FloodRiverGauges from '@/app/bhotekoshi-flood/situation/_components/FloodRiverGauges';
+import FloodReportedTiles from '@/app/bhotekoshi-flood/_components/FloodReportedTiles';
 import { useFloodLang } from '@/hooks/use-flood-lang';
 import { ageFrom } from '@/lib/relative-time';
+import { DESK_POLL_MS } from '@/hooks/use-desk-refresh';
+import { useFloodDesk } from '@/app/bhotekoshi-flood/_components/FloodDeskProvider';
 import type {
   BipadAlert,
   BipadIncident,
   CorridorIncidents,
-  FloodDeskPayload,
   FloodOfficialFeed,
   HelpRequest,
   PersonMapPoint,
   PortalActivity,
+  SitrepContent,
 } from '@/types';
 
 // The corridor's incident register, from BIPAD.
@@ -34,6 +37,7 @@ interface Payload {
   helpRequests: FloodOfficialFeed<HelpRequest> | null;
   personPoints: FloodOfficialFeed<PersonMapPoint> | null;
   latest: PortalActivity | null;
+  sitrep: SitrepContent | null;
   generatedAt: string;
 }
 
@@ -46,18 +50,9 @@ const T = {
   },
   caveatTitle: { en: 'Read these figures carefully', ne: 'यी तथ्यांक ध्यानपूर्वक पढ्नुहोस्' },
   caveat: {
-    en: 'These are the damage figures entered into BIPAD so far, not the national toll. An incident is logged as soon as it is reported and counted later, so a low number here usually means counting is not finished — not that nothing happened. The official toll is published by NDRRMA and the Nepal Police.',
-    ne: 'यी अहिलेसम्म बिपद् पोर्टलमा प्रविष्ट भएका क्षतिका तथ्यांक हुन्, राष्ट्रिय जनधनको क्षति होइन। घटना जनाइनासाथ दर्ता हुन्छ र गणना पछि गरिन्छ — त्यसैले यहाँको कम संख्याले प्रायः गणना नसकिएको जनाउँछ, केही भएन भन्ने होइन। आधिकारिक तथ्यांक एनडीआरआरएमए र नेपाल प्रहरीले प्रकाशित गर्छन्।',
+    en: 'Incident counts are BIPAD’s corridor register and refresh on the desk cycle. Deaths, uncontacted, injured, houses and bridges in the tiles are reviewed figures — deaths overlay from the Rasuwa flood bulletin when that scrape’s district split adds up, and never go down. BIPAD still reads every incident, but most loss records there are still zeros. Do not add the register and the official toll together.',
+    ne: 'घटना संख्या यो करिडोरको बिपद् अभिलेख हो र डेस्क चक्रमा ताजा हुन्छ। टाइलका मृत्यु, सम्पर्कविहीन, घाइते, घर र पुल जाँचिएका तथ्यांक हुन् — मृत्यु रसुवा बाढी बुलेटिनबाट ओभरले हुन्छ जब जिल्ला विभाजन जोडिन्छ, र घट्दैन। बिपद्ले हरेक घटना अझै पढ्छ, तर त्यहाँका अधिकांश क्षति रेकर्ड अझै शून्य छन्। अभिलेख र आधिकारिक क्षति नजोड्नुहोस्।',
   },
-  incidents: { en: 'Incidents logged', ne: 'दर्ता घटना' },
-  withFigures: { en: 'With damage figures', ne: 'क्षति तथ्यांक भएका' },
-  awaiting: { en: 'Still awaiting figures', ne: 'तथ्यांक कुर्दै' },
-  deaths: { en: 'Deaths recorded', ne: 'मृत्यु दर्ता' },
-  missing: { en: 'Missing recorded', ne: 'बेपत्ता दर्ता' },
-  injured: { en: 'Injured recorded', ne: 'घाइते दर्ता' },
-  evacuated: { en: 'Families evacuated', ne: 'स्थानान्तरित परिवार' },
-  houses: { en: 'Houses destroyed', ne: 'भत्किएका घर' },
-  bridges: { en: 'Bridges destroyed', ne: 'भत्किएका पुल' },
   alertsTitle: { en: 'Live alerts', ne: 'प्रत्यक्ष चेतावनी' },
   alertsHint: {
     en: 'Warnings currently published by the Department of Hydrology and Meteorology through BIPAD.',
@@ -74,14 +69,10 @@ const T = {
   loading: { en: 'Loading…', ne: 'लोड हुँदै…' },
   unavailable: { en: 'BIPAD cannot be reached right now.', ne: 'बिपद् पोर्टलमा अहिले पहुँच भएन।' },
   updated: { en: 'Read', ne: 'पढिएको' },
-  tilesCaveat: {
-    en: 'What has been entered into the register so far, not the national toll.',
-    ne: 'अहिलेसम्म अभिलेखमा प्रविष्ट भएको मात्र, राष्ट्रिय क्षति होइन।',
-  },
   nationalTitle: { en: 'The national picture — past 24 hours', ne: 'राष्ट्रिय अवस्था — विगत २४ घण्टा' },
   nationalHint: {
-    en: 'NDRRMA’s Daily Disaster Bulletin, in the authority’s own words. It covers the whole country over the last 24 hours, while the figures above are this corridor since the flood began — read them side by side, never added together.',
-    ne: 'एनडीआरआरएमएको दैनिक विपद् बुलेटिन, प्राधिकरणकै शब्दमा। यसले विगत २४ घण्टाको सिंगो देश समेट्छ, माथिका तथ्यांक भने बाढी सुरु भएयताको यही करिडोरका हुन् — छेउछाउ राखेर पढ्नुहोस्, जोड्नुहोस् नहोस्।',
+    en: 'NDRRMA’s Daily Disaster Bulletin, in the authority’s own words. It covers the whole country over the last 24 hours, while the corridor incident register on this page is this corridor since the flood began — read them side by side, never added together.',
+    ne: 'एनडीआरआरएमएको दैनिक विपद् बुलेटिन, प्राधिकरणकै शब्दमा। यसले विगत २४ घण्टाको सिंगो देश समेट्छ, यस पृष्ठको करिडोर घटना अभिलेख भने बाढी सुरु भएयताको यही करिडोरको हो — छेउछाउ राखेर पढ्नुहोस्, जोड्नुहोस् नहोस्।',
   },
   openBulletin: { en: 'Open the full bulletin (PDF)', ne: 'पूरा बुलेटिन खोल्नुहोस् (PDF)' },
   askedTitle: { en: 'What is being asked for', ne: 'के-कस्तो सहयोग मागिँदैछ' },
@@ -118,6 +109,8 @@ function damageLine(incident: BipadIncident, lang: 'en' | 'ne'): { text: string;
   add(loss.housesAffected, 'houses damaged', 'घर प्रभावित');
   add(loss.bridgesDestroyed, 'bridges lost', 'पुल भत्किएको');
   add(loss.familiesEvacuated, 'families evacuated', 'परिवार स्थानान्तरित');
+  add(loss.familiesAffected, 'families affected', 'प्रभावित परिवार');
+  add(loss.familiesRelocated, 'families relocated', 'पुनर्स्थापित परिवार');
   add(loss.livestockLost, 'livestock lost', 'पशुधन नोक्सान');
   return { text: parts.length ? parts.join(' · ') : T.none[lang], counted: true };
 }
@@ -130,8 +123,8 @@ function sourceLabel(source: string | null, lang: 'en' | 'ne'): string {
 
 export default function FloodSituationView() {
   const [lang, setLang] = useFloodLang();
+  const { desk } = useFloodDesk();
   const [data, setData] = useState<Payload | null>(null);
-  const [desk, setDesk] = useState<FloodDeskPayload | null>(null);
   const t = (key: keyof typeof T) => T[key][lang];
 
   useEffect(() => {
@@ -144,26 +137,13 @@ export default function FloodSituationView() {
         })
         .catch(() => {});
     load();
-    // The gauge panel comes from the main desk payload, which is cached separately.
-    const loadDesk = () =>
-      fetch('/api/flood')
-        .then(r => (r.ok ? r.json() : null))
-        .then(d => {
-          if (!cancelled && d) setDesk(d);
-        })
-        .catch(() => {});
-    loadDesk();
-    const id = setInterval(() => {
-      load();
-      loadDesk();
-    }, 4 * 60 * 1000);
+    const id = setInterval(load, DESK_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
   }, []);
 
-  const totals = data?.corridor?.totals;
   const incidents = data?.corridor?.incidents || [];
   const alerts = (data?.alerts || []).filter(a => a.public);
   const latestRequests = data?.latest?.requests || [];
@@ -180,35 +160,14 @@ export default function FloodSituationView() {
         <p>{t('caveat')}</p>
       </aside>
 
-      {totals && (
-        <div className="fl-tiles">
-          <div><dd>{totals.incidentCount}</dd><dt>{t('incidents')}</dt></div>
-          <div><dd>{totals.incidentsWithFigures}</dd><dt>{t('withFigures')}</dt></div>
-          <div className="t-warning"><dd>{totals.incidentsAwaitingFigures}</dd><dt>{t('awaiting')}</dt></div>
-          <div className="t-critical"><dd>{totals.deaths}</dd><dt>{t('deaths')}</dt></div>
-          <div className="t-critical"><dd>{totals.missing}</dd><dt>{t('missing')}</dt></div>
-          <div className="t-warning"><dd>{totals.injured}</dd><dt>{t('injured')}</dt></div>
-          <div><dd>{totals.familiesEvacuated}</dd><dt>{t('evacuated')}</dt></div>
-          <div><dd>{totals.housesDestroyed}</dd><dt>{t('houses')}</dt></div>
-          <div><dd>{totals.bridgesDestroyed}</dd><dt>{t('bridges')}</dt></div>
-        </div>
-      )}
-
-      {/* The tiles above are the one set of figures on this desk that is
-          genuinely live end to end — BIPAD is re-read every ten minutes — so
-          they carry their own read time rather than borrowing the one at the
-          bottom of the incident table. */}
-      {totals && (
-        <p className="fl-note">
-          {t('updated')} {ageFrom(data?.corridor?.fetchedAt, lang)}
-          {' · '}
-          <a href="https://bipadportal.gov.np/" target="_blank" rel="noopener noreferrer">
-            {lang === 'ne' ? 'बिपद् पोर्टल' : 'BIPAD Portal'} &#8599;
-          </a>
-          {' · '}
-          <span className="fl-blank">{t('tilesCaveat')}</span>
-        </p>
-      )}
+      <section className="fl-sec">
+        <FloodReportedTiles
+          corridor={data?.corridor}
+          sitrep={data?.sitrep || desk?.sitrep}
+          lang={lang}
+          showHeading={false}
+        />
+      </section>
 
       <FloodRiverGauges river={desk?.river} lang={lang} />
 
@@ -294,7 +253,7 @@ export default function FloodSituationView() {
 
       {/* The public's side of the same event: what people are asking the
           government for, and what is being offered back. Kept clearly apart
-          from the incident figures above — a filing is not a casualty. */}
+          from the corridor incident list — a filing is not a casualty. */}
       {(latestRequests.length > 0 || latestOffers.length > 0) && (
         <section className="fl-sec">
           <div className="fl-sec-head">

@@ -2,13 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  SitrepContent,
-  SitrepNameList,
   RescueRegister,
   RescuedPerson,
-  FloodOfficialFeed,
-  NdrrmaPopup,
   OpmcmPersonRegister,
+  SitrepNameList,
 } from '@/types';
 import FloodShell from '@/components/FloodShell';
 import FloodOpmcmRegister from '@/app/bhotekoshi-flood/rescue/_components/FloodOpmcmRegister';
@@ -18,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { DESK_POLL_MS } from '@/hooks/use-desk-refresh';
+import { useFloodDesk } from '@/app/bhotekoshi-flood/_components/FloodDeskProvider';
 import {
   Select,
   SelectContent,
@@ -71,7 +70,7 @@ const T = {
     ne: 'एनडीआरआरएमए सूचीमा अहिले पहुँच भएन। सिधै पोर्टल हेर्नुहोस्।',
   },
   updated: { en: 'Register read', ne: 'सूची पढिएको' },
-  openPortal: { en: 'Open the NDRRMA portal', ne: 'एनडीआरआरएमए पोर्टल खोल्नुहोस्' },
+  openPortal: { en: 'Open the NDRRMA Rasuwa register', ne: 'एनडीआरआरएमए रसुवा सूची खोल्नुहोस्' },
   correctionTitle: { en: 'Something wrong on this list?', ne: 'यो सूचीमा केही गलत छ?' },
   correctionIntro: {
     en: 'Atlas cannot edit the government record, but it will pass a correction on. Tell us what is wrong and we will raise it with NDRRMA.',
@@ -145,6 +144,7 @@ type Filter = 'all' | 'nepali' | 'foreign';
 
 export default function FloodRescueView() {
   const [lang, setLang] = useFloodLang();
+  const { desk } = useFloodDesk();
   const [data, setData] = useState<RescueRegister | null>(null);
   // Eight thousand rows on their own route, loaded alongside rather than inside
   // the NDRRMA register so the search box on this page paints immediately.
@@ -152,8 +152,8 @@ export default function FloodRescueView() {
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(0);
-  const [sitrep, setSitrep] = useState<SitrepContent | null>(null);
-  const [notices, setNotices] = useState<FloodOfficialFeed<NdrrmaPopup> | null>(null);
+  const sitrep = desk.sitrep;
+  const notices = desk.popups ?? null;
   const [form, setForm] = useState({ kind: 'wrong_details', message: '', contact: '' });
   const [formState, setFormState] = useState<'idle' | 'sending' | 'sent' | 'failed' | 'off'>('idle');
 
@@ -162,42 +162,26 @@ export default function FloodRescueView() {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      fetch('/api/flood/rescue')
-        .then(r => (r.ok ? r.json() : null))
-        .then(d => {
-          if (!cancelled && d) setData(d);
-        })
-        .catch(() => {});
-      fetch('/api/flood/persons')
-        .then(r => (r.ok ? r.json() : null))
-        .then(d => {
-          if (!cancelled && d) setPortalRegister(d);
-        })
-        .catch(() => {});
+      void Promise.all([
+        fetch('/api/flood/rescue')
+          .then(r => (r.ok ? r.json() : null))
+          .then(d => {
+            if (!cancelled && d) setData(d);
+          })
+          .catch(() => {}),
+        fetch('/api/flood/persons')
+          .then(r => (r.ok ? r.json() : null))
+          .then(d => {
+            if (!cancelled && d) setPortalRegister(d);
+          })
+          .catch(() => {}),
+      ]);
     };
     load();
-    const id = setInterval(load, 3 * 60 * 1000);
+    const id = setInterval(load, DESK_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/flood')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => {
-        if (cancelled || !d) return;
-        if (d.sitrep) setSitrep(d.sitrep);
-        // NDRRMA's site-wide notice. During this response it has been the
-        // official list of rescued Nepali and foreign citizens, as a PDF —
-        // which belongs on the page where people are searching for a name.
-        if (d.popups) setNotices(d.popups);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
     };
   }, []);
 
@@ -213,7 +197,7 @@ export default function FloodRescueView() {
       if (filter === 'nepali' && p.nationality !== 'nepali') return false;
       if (filter === 'foreign' && p.nationality === 'nepali') return false;
       if (!needle) return true;
-      const haystack = fold(`${p.name || ''} ${p.nameNe || ''} ${p.country || ''} ${p.rescuedAt?.title || ''} ${p.rescuedAt?.titleNe || ''} ${p.stationedAt?.title || ''} ${p.stationedAt?.titleNe || ''}`);
+      const haystack = fold(`${p.name || ''} ${p.nameNe || ''} ${p.country || ''} ${p.rescuedAt?.title || ''} ${p.rescuedAt?.titleNe || ''} ${p.stationedAt?.title || ''} ${p.stationedAt?.titleNe || ''} ${p.remarks || ''}`);
       return haystack.includes(needle);
     });
   }, [persons, q, filter]);
@@ -281,37 +265,14 @@ export default function FloodRescueView() {
         </div>
       ) : null}
 
-      {(notices?.items?.length ?? 0) > 0 && (
-        <section className="fl-sec">
-          <div className="fl-sec-head">
-            <span>{lang === 'ne' ? 'सरकारी' : 'Official'}</span>
-            <h2>{lang === 'ne' ? 'एनडीआरआरएमएको सूचना' : 'NDRRMA notice'}</h2>
-          </div>
-          {(notices?.items || []).map(notice => {
-            const title = bilingual(lang, notice.title, notice.titleNe);
-            const body = bilingual(lang, notice.body, notice.bodyNe);
-            return (
-              <div className="fl-place-note" key={notice.id}>
-                <h3>{title}</h3>
-                {body && body !== title && <p>{body}</p>}
-                {notice.pdfUrl && (
-                  <p className="fl-note">
-                    <a href={notice.pdfUrl} target="_blank" rel="noopener noreferrer">
-                      {lang === 'ne' ? 'कागजात खोल्नुहोस् (PDF)' : 'Open the document (PDF)'} &#8599;
-                    </a>
-                  </p>
-                )}
-              </div>
-            );
+      {(data?.messages?.length ?? 0) > 0 && (
+        <aside className="fl-register-about">
+          <span>{lang === 'ne' ? 'एनडीआरआरएमए · सूचीबारे' : 'NDRRMA · About this register'}</span>
+          {(data?.messages || []).map((msg, i) => {
+            const line = bilingual(lang, msg.title, msg.titleNe);
+            return line ? <p key={i}>{line}</p> : null;
           })}
-          {/* No source link here: the notice's own document link sits directly
-              above, and a second link to the same authority under it read as a
-              different destination. The read time stays — a reader still needs
-              to know how fresh this is. */}
-          <p className="fl-note">
-            {lang === 'ne' ? 'पढिएको' : 'Read'} {notices ? ageFrom(notices.fetchedAt, lang) : '—'}
-          </p>
-        </section>
+        </aside>
       )}
 
       <section className="fl-sec">
@@ -381,8 +342,8 @@ export default function FloodRescueView() {
                       <td className="num" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {p.age ?? '—'}
                       </td>
-                      <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {bilingual(lang, p.rescuedAt?.title, p.rescuedAt?.titleNe) || '—'}
+                      <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.remarks || undefined}>
+                        {bilingual(lang, p.rescuedAt?.title, p.rescuedAt?.titleNe) || p.remarks || '—'}
                       </td>
                       <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {bilingual(lang, p.stationedAt?.title, p.stationedAt?.titleNe) || '—'}
@@ -427,11 +388,44 @@ export default function FloodRescueView() {
 
         <p className="fl-note">
           {t('updated')} {data ? ageFrom(data.fetchedAt, lang) : '—'} ·{' '}
-          <a href={data?.source?.url || 'https://ndrrma.gov.np/np/rescue'} target="_blank" rel="noopener noreferrer">
+          <a href={data?.source?.url || 'https://ndrrma.gov.np/np/rasuwa/rescue'} target="_blank" rel="noopener noreferrer">
             {t('openPortal')} &#8599;
           </a>
         </p>
       </section>
+
+      {(notices?.items?.length ?? 0) > 0 && (
+        <section className="fl-sec">
+          <div className="fl-sec-head">
+            <span>{lang === 'ne' ? 'सरकारी' : 'Official'}</span>
+            <h2>{lang === 'ne' ? 'एनडीआरआरएमएको सूचना' : 'NDRRMA notice'}</h2>
+          </div>
+          {(notices?.items || []).map(notice => {
+            const title = bilingual(lang, notice.title, notice.titleNe);
+            const body = bilingual(lang, notice.body, notice.bodyNe);
+            return (
+              <div className="fl-place-note" key={notice.id}>
+                <h3>{title}</h3>
+                {body && body !== title && <p>{body}</p>}
+                {notice.pdfUrl && (
+                  <p className="fl-note">
+                    <a href={notice.pdfUrl} target="_blank" rel="noopener noreferrer">
+                      {lang === 'ne' ? 'कागजात खोल्नुहोस् (PDF)' : 'Open the document (PDF)'} &#8599;
+                    </a>
+                  </p>
+                )}
+              </div>
+            );
+          })}
+          {/* No source link here: the notice's own document link sits directly
+              above, and a second link to the same authority under it read as a
+              different destination. The read time stays — a reader still needs
+              to know how fresh this is. */}
+          <p className="fl-note">
+            {lang === 'ne' ? 'पढिएको' : 'Read'} {notices ? ageFrom(notices.fetchedAt, lang) : '—'}
+          </p>
+        </section>
+      )}
 
       {/* Two registers, side by side and never merged: NDRRMA's official one
           above and the Prime Minister's Office portal here. The same person can

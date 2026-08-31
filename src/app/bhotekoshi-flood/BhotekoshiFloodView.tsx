@@ -7,13 +7,27 @@ import FloodThemeToggle from '@/components/FloodThemeToggle';
 import type { MapPhoto, MapSelection } from '@/components/FloodDistrictMap';
 import FloodMapDialog from '@/components/FloodMapDialog';
 import FloodReportButton from '@/components/FloodReportButton';
+import FloodNewsTicker from '@/components/FloodNewsTicker';
 import FloodAiInsights from '@/app/bhotekoshi-flood/_components/FloodAiInsights';
 import { FloodNav } from '@/components/FloodShell';
 import FloodSummary from '@/app/bhotekoshi-flood/_components/FloodSummary';
 import FloodOfficial from '@/app/bhotekoshi-flood/_components/FloodOfficial';
 import { useFloodLang } from '@/hooks/use-flood-lang';
 import { ageFrom } from '@/lib/relative-time';
-import type { FloodDeskPayload, FloodPhoto, FloodPhotoFeed } from '@/types';
+import FloodFooter from '@/components/FloodFooter';
+import { useFloodDesk } from '@/app/bhotekoshi-flood/_components/FloodDeskProvider';
+import { districtPinForText } from '@/apis/utils/flood-scope.mjs';
+import type { FloodPhoto, FloodPhotoFeed, NewsItem } from '@/types';
+import { DESK_POLL_MS, nextUpdateLabel, useTick } from '@/hooks/use-desk-refresh';
+
+/** A few kilometres of scatter so several stories in one district do not stack. */
+function jitter(seed: string, amp: number): { dLat: number; dLon: number } {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  const u = (Math.abs(h) % 10000) / 10000;
+  const v = (Math.abs((h * 13) | 0) % 10000) / 10000;
+  return { dLat: (u * 2 - 1) * amp, dLon: (v * 2 - 1) * amp };
+}
 
 // The overview of the Rasuwa–Bhotekoshi flood desk.
 //
@@ -46,6 +60,11 @@ const T = {
     en: 'Photographs sent in by the public, placed where each was taken',
     ne: 'जनताले पठाएका तस्बिर, खिचिएकै स्थानमा राखिएको',
   },
+  mapLayerNews: { en: 'Press photographs', ne: 'समाचारका तस्बिर' },
+  mapNewsSource: {
+    en: 'Lead images from flood reporting, placed in the district the headline names — not the camera’s GPS',
+    ne: 'बाढी समाचारका मुख्य तस्बिर, शीर्षकमा लेखिएको जिल्लामा राखिएको — क्यामेराको जीपीएस होइन',
+  },
   mapReviewed: { en: 'reviewed', ne: 'जाँचिएको' },
   mapRead: { en: 'read', ne: 'पढिएको' },
   loading: { en: 'Loading…', ne: 'लोड हुँदै…' },
@@ -56,6 +75,8 @@ const T = {
   rescueSub: { en: 'Search the NDRRMA register by name', ne: 'एनडीआरआरएमए सूचीमा नाम खोज्नुहोस्' },
   situation: { en: 'Incident register', ne: 'घटना अभिलेख' },
   situationSub: { en: 'River levels, alerts and logged incidents', ne: 'नदीको सतह, चेतावनी र दर्ता घटना' },
+  damage: { en: 'Damage assessment', ne: 'क्षति मूल्यांकन' },
+  damageSub: { en: 'Copernicus EMSR927 and the NEA notice', ne: 'कोपर्निकस EMSR927 र प्राधिकरण सूचना' },
   report: { en: 'Ground reports', ne: 'जनताका तस्बिर' },
   reportSub: { en: 'Photographs from the affected districts', ne: 'प्रभावित जिल्लाका तस्बिर' },
   coverage: { en: 'Coverage', ne: 'समाचार' },
@@ -66,9 +87,11 @@ const T = {
 
 export default function BhotekoshiFloodView() {
   const [lang, setLang] = useFloodLang();
-  const [data, setData] = useState<FloodDeskPayload | null>(null);
+  const { desk: data } = useFloodDesk();
   const [photoFeed, setPhotoFeed] = useState<FloodPhotoFeed | null>(null);
+  const [newsItems, setNewsItems] = useState<NewsItem[] | null>(null);
   const [selection, setSelection] = useState<MapSelection | null>(null);
+  useTick();
 
   const t = (key: keyof typeof T) => T[key][lang];
 
@@ -83,21 +106,28 @@ export default function BhotekoshiFloodView() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      const [photosRes, newsRes] = await Promise.all([
+        fetch('/api/flood/photos').catch(() => null),
+        fetch('/api/news?topic=flood&window=24h&limit=28&sourceCap=8').catch(() => null),
+      ]);
       try {
-        const res = await fetch('/api/flood');
-        if (res.ok && !cancelled) setData(await res.json());
-      } catch (err) {
-        console.error('[Flood overview] load failed', err);
-      }
-      try {
-        const res = await fetch('/api/flood/photos');
-        if (res.ok && !cancelled) setPhotoFeed(await res.json());
+        if (photosRes?.ok && !cancelled) setPhotoFeed(await photosRes.json());
       } catch {
         /* the map stands on its own without ground reports */
       }
+      try {
+        if (newsRes?.ok && !cancelled) {
+          const j = await newsRes.json();
+          setNewsItems(Array.isArray(j.items) ? j.items : []);
+        } else if (!cancelled) {
+          setNewsItems([]);
+        }
+      } catch {
+        if (!cancelled) setNewsItems([]);
+      }
     };
     load();
-    const id = setInterval(load, 5 * 60 * 1000);
+    const id = setInterval(load, DESK_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -130,7 +160,7 @@ export default function BhotekoshiFloodView() {
 
 
   const photos: FloodPhoto[] = photoFeed?.photos || [];
-  const mapPhotos: MapPhoto[] = photos
+  const groundPins: MapPhoto[] = photos
     .filter((p): p is FloodPhoto & { lat: number; lon: number } => p.lat != null && p.lon != null)
     .map(p => ({
       id: p.id,
@@ -138,18 +168,46 @@ export default function BhotekoshiFloodView() {
       lon: p.lon,
       geoSource: p.geoSource,
       label: p.caption || (lang === 'ne' ? 'जनताको तस्बिर' : 'Ground report'),
+      url: p.url,
+      orientation: p.orientation,
+      layer: 'ground',
     }));
+  const newsPins: MapPhoto[] = (newsItems || [])
+    .filter(item => item.imageProxy && item.link)
+    .map(item => {
+      const located = districtPinForText(item.title);
+      const pin = located || { district: 'Rasuwa', lat: 28.1167, lon: 85.3000 };
+      const { dLat, dLon } = jitter(item.link, located ? 0.025 : 0.03);
+      return {
+        id: `news:${item.link}`,
+        lat: pin.lat + dLat,
+        lon: pin.lon + dLon,
+        geoSource: 'district' as const,
+        label: item.title,
+        url: item.imageProxy || undefined,
+        layer: 'news' as const,
+        href: item.link,
+        sub: located
+          ? (lang === 'ne' ? 'समाचारको तस्बिर — जिल्ला शीर्षकबाट' : 'Press photograph — district from the headline')
+          : (lang === 'ne'
+            ? 'समाचारको तस्बिर — शीर्षकमा जिल्ला नभएकाले रसुवामा राखिएको'
+            : 'Press photograph — headline named no district, shown in Rasuwa'),
+      };
+    })
+    .slice(0, 16);
+  const mapPhotos: MapPhoto[] = [...groundPins, ...newsPins];
 
   const sections: Array<{ href: string; title: string; sub: string }> = [
     { href: '/bhotekoshi-flood/donate', title: t('donate'), sub: t('donateSub') },
     { href: '/bhotekoshi-flood/rescue', title: t('rescue'), sub: t('rescueSub') },
     { href: '/bhotekoshi-flood/situation', title: t('situation'), sub: t('situationSub') },
+    { href: '/bhotekoshi-flood/damage', title: t('damage'), sub: t('damageSub') },
     { href: '/bhotekoshi-flood/media', title: t('coverage'), sub: t('coverageSub') },
     { href: '/bhotekoshi-flood/contacts', title: t('contacts'), sub: t('contactsSub') },
   ];
 
   return (
-    <div className="fl">
+    <div className="fl" lang={lang}>
       <div className="fl-rail">
         <div className="fl-wrap" style={{ paddingTop: '8px', paddingBottom: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '18px', flexWrap: 'wrap', marginBottom: marquee ? '6px' : '0' }}>
@@ -177,9 +235,11 @@ export default function BhotekoshiFloodView() {
         <div className="fl-wrap">
           <div className="fl-mast-top">
             <Link href="/">&larr; {t('back')}</Link>
-            <div className="fl-lang">
-              <button className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>English</button>
-              <button className={lang === 'ne' ? 'on' : ''} onClick={() => setLang('ne')}>नेपाली</button>
+            <div className="fl-mast-controls">
+              <div className="fl-lang">
+                <button className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>English</button>
+                <button className={lang === 'ne' ? 'on' : ''} onClick={() => setLang('ne')}>नेपाली</button>
+              </div>
               <FloodThemeToggle lang={lang} />
             </div>
           </div>
@@ -190,6 +250,27 @@ export default function BhotekoshiFloodView() {
             <FloodReportButton lang={lang} />
           </div>
           <p className="fl-dateline">{site ? L(site, 'date_line') : ''}</p>
+          {/* The same freshness line the other desk pages get from FloodShell.
+              This page builds its own masthead, so it carries its own copy. */}
+          <p className="fl-freshness">
+            <i aria-hidden="true" />
+            {data?.refreshedAt ? (
+              <>
+                {lang === 'ne' ? 'तथ्यांक अद्यावधिक' : 'Data updated'}{' '}
+                <b>{ageFrom(data.refreshedAt, lang)}</b>
+                {nextUpdateLabel(data.nextRefreshAt, lang, data.refreshing) && (
+                  <span> · {nextUpdateLabel(data.nextRefreshAt, lang, data.refreshing)}</span>
+                )}
+              </>
+            ) : (
+              <span>
+                {lang === 'ne'
+                  ? 'तथ्यांक ताजा गरिँदै — केही क्षणमा देखिनेछ'
+                  : 'Fetching the latest figures — they will appear shortly'}
+              </span>
+            )}
+          </p>
+          <FloodNewsTicker lang={lang} items={newsItems || []} status={newsItems == null ? 'loading' : 'live'} />
         </div>
       </header>
 
@@ -257,10 +338,16 @@ export default function BhotekoshiFloodView() {
                 {t('mapRead')} {ageFrom(data?.river?.fetchedAt, lang)}
               </span>
             </p>
-            {mapPhotos.length > 0 && (
+            {groundPins.length > 0 && (
               <p className="fl-note">
                 <b>{t('mapLayerPhotos')}</b>{' — '}
                 <span className="fl-blank">{t('mapPhotoSource')}</span>
+              </p>
+            )}
+            {newsPins.length > 0 && (
+              <p className="fl-note">
+                <b>{t('mapLayerNews')}</b>{' — '}
+                <span className="fl-blank">{t('mapNewsSource')}</span>
               </p>
             )}
           </div>
@@ -271,31 +358,44 @@ export default function BhotekoshiFloodView() {
           </div>
         </section>
 
-        {safety && (
-          <aside className="fl-standfirst" role="note">
-            <div>
-              <span style={{ display: 'block' }}>{t('safetyNotice')}</span>
-              <img
-                src="/images/nepal-police.png"
-                alt="Nepal Police"
-                style={{ height: '80px', width: 'auto', display: 'block', marginTop: '16px' }}
-              />
-            </div>
-            <p>{safety}</p>
-          </aside>
-        )}
-
-        {/* The summary of everything. */}
         {sitrep ? (
-          <FloodSummary
-            sitrep={sitrep}
-            lang={lang}
-            whatHappened={data?.whatHappened || null}
-            portal={data?.portal || null}
-            corridor={data?.corridor || null}
-            rescueSummary={data?.rescueSummary || null}
-            rescueFetchedAt={data?.rescueFetchedAt || null}
-          />
+          <>
+            <FloodSummary
+              section="chapters"
+              sitrep={sitrep}
+              lang={lang}
+              whatHappened={null}
+              portal={data?.portal || null}
+              corridor={data?.corridor || null}
+              rescueSummary={data?.rescueSummary || null}
+              rescueFetchedAt={data?.rescueFetchedAt || null}
+            />
+
+            {safety && (
+              <aside className="fl-standfirst" role="note">
+                <div>
+                  <span style={{ display: 'block' }}>{t('safetyNotice')}</span>
+                  <img
+                    src="/images/nepal-police.png"
+                    alt="Nepal Police"
+                    style={{ height: '80px', width: 'auto', display: 'block', marginTop: '16px' }}
+                  />
+                </div>
+                <p>{safety}</p>
+              </aside>
+            )}
+
+            <FloodSummary
+              section="rest"
+              sitrep={sitrep}
+              lang={lang}
+              whatHappened={data?.whatHappened || null}
+              portal={data?.portal || null}
+              corridor={data?.corridor || null}
+              rescueSummary={data?.rescueSummary || null}
+              rescueFetchedAt={data?.rescueFetchedAt || null}
+            />
+          </>
         ) : (
           <p className="fl-empty">{t('loading')}</p>
         )}
@@ -326,11 +426,7 @@ export default function BhotekoshiFloodView() {
           onClose={() => setSelection(null)}
         />
 
-        <footer className="fl-foot">
-          {lang === 'ne'
-            ? 'एट्लस निगरानी उपकरण हो, चेतावनी प्रणाली होइन। कदम चाल्नुअघि डीएचएम, एनडीआरआरएमए वा प्रहरीको आधिकारिक सूचना पुष्टि गर्नुहोस्।'
-            : 'Atlas is a monitoring aid, not a warning system. Confirm with DHM, NDRRMA or the Police before acting.'}
-        </footer>
+        <FloodFooter />
       </main>
     </div>
   );

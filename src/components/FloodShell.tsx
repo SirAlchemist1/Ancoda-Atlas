@@ -1,12 +1,16 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
+import { nextUpdateLabel, useTick } from '@/hooks/use-desk-refresh';
+import { ageFrom } from '@/lib/relative-time';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import FloodThemeToggle from '@/components/FloodThemeToggle';
 import FloodReportButton from '@/components/FloodReportButton';
+import FloodNewsTicker from '@/components/FloodNewsTicker';
 import type { Lang } from '@/hooks/use-flood-lang';
-import type { FloodDeskPayload } from '@/types';
+import FloodFooter from '@/components/FloodFooter';
+import { useFloodDesk } from '@/app/bhotekoshi-flood/_components/FloodDeskProvider';
 
 // The frame every flood-desk page sits in.
 //
@@ -24,11 +28,12 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: '/bhotekoshi-flood', en: 'Overview', ne: 'सारांश' },
-  // Giving sits second: after a reader has the picture, before they go
+  { href: '/bhotekoshi-flood/rescue', en: 'Rescued', ne: 'उद्धार' },
+  // Giving sits early: after a reader has the picture, before they go
   // looking for a way to help and find a fake QR code somewhere else.
   { href: '/bhotekoshi-flood/donate', en: 'Donate', ne: 'सहयोग' },
   { href: '/bhotekoshi-flood/situation', en: 'Situation', ne: 'अवस्था' },
-  { href: '/bhotekoshi-flood/rescue', en: 'Rescued', ne: 'उद्धार' },
+  { href: '/bhotekoshi-flood/damage', en: 'Damage', ne: 'क्षति' },
   { href: '/bhotekoshi-flood/media', en: 'Coverage', ne: 'समाचार' },
   { href: '/bhotekoshi-flood/contacts', en: 'Contacts', ne: 'सम्पर्क' },
 ];
@@ -63,20 +68,11 @@ interface Props {
 }
 
 export default function FloodShell({ lang, setLang, kicker, title, standfirst, children }: Props) {
-  const [desk, setDesk] = useState<FloodDeskPayload | null>(null);
+  const { desk, live } = useFloodDesk();
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/flood')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => {
-        if (!cancelled) setDesk(d);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Re-render on a timer so "4 min ago" does not sit frozen at whatever it said
+  // when the page loaded.
+  useTick();
 
   const site = desk?.site;
   const safetyText = site ? (lang === 'ne' ? site.safety_ne || site.safety_en : site.safety_en) : '';
@@ -87,7 +83,7 @@ export default function FloodShell({ lang, setLang, kicker, title, standfirst, c
   const lines = desk?.helplines?.lines || [];
 
   return (
-    <div className="fl">
+    <div className="fl" lang={lang}>
       <div className="fl-rail">
         <div className="fl-wrap" style={{ paddingTop: '8px', paddingBottom: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '18px', flexWrap: 'wrap', marginBottom: safety ? '6px' : '0' }}>
@@ -115,9 +111,11 @@ export default function FloodShell({ lang, setLang, kicker, title, standfirst, c
         <div className="fl-wrap">
           <div className="fl-mast-top">
             <Link href="/">&larr; {lang === 'ne' ? 'एट्लसमा फर्कनुहोस्' : 'Back to Atlas'}</Link>
-            <div className="fl-lang">
-              <button className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>English</button>
-              <button className={lang === 'ne' ? 'on' : ''} onClick={() => setLang('ne')}>नेपाली</button>
+            <div className="fl-mast-controls">
+              <div className="fl-lang">
+                <button className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>English</button>
+                <button className={lang === 'ne' ? 'on' : ''} onClick={() => setLang('ne')}>नेपाली</button>
+              </div>
               <FloodThemeToggle lang={lang} />
             </div>
           </div>
@@ -129,6 +127,28 @@ export default function FloodShell({ lang, setLang, kicker, title, standfirst, c
             <FloodReportButton lang={lang} />
           </div>
           {standfirst && <p className="fl-dateline">{standfirst}</p>}
+          {/* How old the figures on this page are, and when they next move.
+              A reader deciding whether to act on a number is entitled to know
+              its age before they read it. */}
+          <p className="fl-freshness">
+            <i aria-hidden="true" />
+            {live?.refreshedAt ? (
+              <>
+                {lang === 'ne' ? 'तथ्यांक अद्यावधिक' : 'Data updated'}{' '}
+                <b>{ageFrom(live.refreshedAt, lang)}</b>
+                {nextUpdateLabel(live.nextRefreshAt, lang, live.refreshing) && (
+                  <span> · {nextUpdateLabel(live.nextRefreshAt, lang, live.refreshing)}</span>
+                )}
+              </>
+            ) : (
+              <span>
+                {lang === 'ne'
+                  ? 'तथ्यांक ताजा गरिँदै — केही क्षणमा देखिनेछ'
+                  : 'Fetching the latest figures — they will appear shortly'}
+              </span>
+            )}
+          </p>
+          <FloodNewsTicker lang={lang} />
         </div>
       </header>
 
@@ -144,11 +164,7 @@ export default function FloodShell({ lang, setLang, kicker, title, standfirst, c
       <main className="fl-wrap">
         {children}
 
-        <footer className="fl-foot">
-          {lang === 'ne'
-            ? 'एट्लस निगरानी उपकरण हो, चेतावनी प्रणाली होइन। कदम चाल्नुअघि डीएचएम, एनडीआरआरएमए वा प्रहरीको आधिकारिक सूचना पुष्टि गर्नुहोस्।'
-            : 'Atlas is a monitoring aid, not a warning system. Confirm with DHM, NDRRMA or the Police before acting.'}
-        </footer>
+        <FloodFooter />
       </main>
     </div>
   );

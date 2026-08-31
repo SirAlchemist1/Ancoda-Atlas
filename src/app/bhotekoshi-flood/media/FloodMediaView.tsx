@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import FloodShell from '@/components/FloodShell';
 import { useFloodLang } from '@/hooks/use-flood-lang';
 import { ageFrom } from '@/lib/relative-time';
+import { DESK_POLL_MS } from '@/hooks/use-desk-refresh';
 import type {
   FloodOfficialFeed,
   FloodVideo,
@@ -74,30 +75,34 @@ export default function FloodMediaView() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      const [newsRes, videoRes, galleryRes] = await Promise.all([
+        fetch('/api/news?topic=flood&window=48h&limit=40&sourceCap=8').catch(() => null),
+        fetch('/api/flood/videos').catch(() => null),
+        fetch('/api/flood/gallery').catch(() => null),
+      ]);
       try {
-        const res = await fetch('/api/news?topic=flood&window=48h&limit=40&sourceCap=8');
-        if (res.ok && !cancelled) {
-          const j = await res.json();
+        if (newsRes?.ok && !cancelled) {
+          const j = await newsRes.json();
           setNews(Array.isArray(j.items) ? j.items : []);
+        } else if (!cancelled) {
+          setNews([]);
         }
       } catch {
         if (!cancelled) setNews([]);
       }
       try {
-        const res = await fetch('/api/flood/videos');
-        if (res.ok && !cancelled) setVideoFeed(await res.json());
+        if (videoRes?.ok && !cancelled) setVideoFeed(await videoRes.json());
       } catch {
         /* the press section stands on its own */
       }
       try {
-        const res = await fetch('/api/flood/gallery');
-        if (res.ok && !cancelled) setGallery(await res.json());
+        if (galleryRes?.ok && !cancelled) setGallery(await galleryRes.json());
       } catch {
         /* the galleries are optional */
       }
     };
     load();
-    const id = setInterval(load, 5 * 60 * 1000);
+    const id = setInterval(load, DESK_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -132,8 +137,8 @@ export default function FloodMediaView() {
         </div>
         <p className="fl-note">
           {lang === 'ne'
-            ? 'युट्युबबाट नेपालका र प्रमुख अन्तर्राष्ट्रिय समाचार च्यानलहरूको प्रत्यक्ष प्रसारण।'
-            : 'Live broadcast of leading Nepali and international news channels streamed directly from YouTube.'}
+            ? 'नेपाली समाचार च्यानलहरूको प्रत्यक्ष प्रसारण, युट्युबबाट सिधै।'
+            : 'Live broadcast from Nepali news channels, streamed directly from YouTube.'}
         </p>
 
         {!videoFeed ? (

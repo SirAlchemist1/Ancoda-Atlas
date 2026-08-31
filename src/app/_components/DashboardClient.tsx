@@ -1,10 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import NepalSignalsMap from '@/components/NepalSignalsMap';
+import NepalSignalsMap from '@/app/_components/NepalSignalsMap';
+import { nextUpdateLabel, useDeskRefresh, useTick } from '@/hooks/use-desk-refresh';
+import { ageFrom } from '@/lib/relative-time';
 import BhotekoshiFloodButton from '@/app/_components/BhotekoshiFloodButton';
+import FloodNewsTicker from '@/components/FloodNewsTicker';
 import type {
   HazardSnapshot,
+  NewsBundleResponse,
   NewsItem,
   WeatherAlert,
   FloodVideo,
@@ -12,6 +16,10 @@ import type {
   BipadPayload,
 } from '@/types';
 import { errorMessage } from '@/types';
+import { useFloodLang } from '@/hooks/use-flood-lang';
+import { useAtlasTheme } from '@/hooks/use-atlas-theme';
+import FloodThemeToggle from '@/components/FloodThemeToggle';
+import FloodFooter from '@/components/FloodFooter';
 
 interface PanelState {
   items: NewsItem[];
@@ -124,9 +132,6 @@ const DASHBOARD_COPY = {
     en: 'A plain-language view of earthquakes, rain, fires, air quality, and active response signals.',
     ne: 'भूकम्प, वर्षा, आगलागी, वायु गुणस्तर र सक्रिय उद्धारसम्बन्धी सरल जानकारी।',
   },
-  floodNews: { en: 'Bhotekoshi flood news', ne: 'भोटेकोशी बाढी समाचार' },
-  loadingNews: { en: 'Looking for the latest flood updates…', ne: 'पछिल्लो बाढी अपडेट खोजिँदैछ…' },
-  noFloodNews: { en: 'No Bhotekoshi flood updates in the current feed.', ne: 'हालको फिडमा भोटेकोशी बाढीसम्बन्धी अपडेट छैन।' },
   liveUpdates: { en: 'Live updates', ne: 'प्रत्यक्ष अपडेट' },
   liveFeed: { en: 'Live hazard feed', ne: 'प्रत्यक्ष विपद् फिड' },
   showUpdates: { en: 'Show updates from', ne: 'अपडेटको समय' },
@@ -305,14 +310,13 @@ function copy(key: keyof typeof DASHBOARD_COPY, language: 'en' | 'ne') {
 
 export default function DashboardClient({ initialData }: DashboardClientProps) {
   const [D, setD] = useState(initialData);
+  // Keeps the "data updated N ago" pill honest between sweeps.
+  useTick();
   const meta = D.meta || {};
 
-  // Boot sequence state
-  const [booting, setBooting] = useState(true);
-
-  // Custom visual quality modes
-  const [darkTheme, setDarkTheme] = useState(false);
-  const [language, setLanguage] = useState<'en' | 'ne'>('en');
+  const [theme] = useAtlasTheme();
+  const darkTheme = theme === 'dark';
+  const [language, changeLanguage] = useFloodLang();
   const [newsWindow, setNewsWindow] = useState('24h');
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [bipadData, setBipadData] = useState<BipadPayload | null>(null);
@@ -348,21 +352,9 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
   // Load configuration from local storage
   useEffect(() => {
     const cachedPerf = localStorage.getItem('atlas_low_perf') === 'true';
-    const cachedTheme = localStorage.getItem('atlas_theme') === 'dark';
-    const cachedLanguage = localStorage.getItem('atlas_language');
-    if (cachedLanguage === 'en' || cachedLanguage === 'ne') setLanguage(cachedLanguage);
-    setDarkTheme(cachedTheme);
     if (cachedPerf) {
       document.body.classList.add('low-perf');
     }
-    if (cachedTheme) {
-      document.body.classList.add('dark-theme');
-    }
-  }, []);
-
-  // Run boot sequence logs on mount
-  useEffect(() => {
-    setTimeout(() => setBooting(false), 3500);
   }, []);
 
   // Subscribe to live events via SSE
@@ -390,40 +382,67 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
     };
   }, []);
 
-  // Fetch live hazard news on load & newsWindow changes
+  // A polling fallback beside the stream.
+  //
+  // The dashboard used to depend on SSE alone: if the stream never delivered —
+  // a proxy that buffers event-streams, a dropped connection the browser does
+  // not retry, an instance that has not swept yet — the page kept whatever it
+  // was rendered with and never moved again, with nothing on screen to say so.
+  // Polling the same snapshot on a short cycle makes that unnoticeable rather
+  // than terminal, and costs one cached response every couple of minutes.
+  useDeskRefresh(
+    React.useCallback(() => {
+      fetch('/api/data')
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => {
+          if (d?.meta) setD(d);
+        })
+        .catch(() => {});
+    }, []),
+  );
+
+  // One bundled payload. Eight topic routes on a high-RTT radio each pay
+  // 200–400ms before any RSS work starts.
   const fetchAllNews = async () => {
-    NEWS_PANELS.forEach(async (cfg) => {
-      setNewsCache((prev) => ({
-        ...prev,
-        [cfg.id]: { ...prev[cfg.id], status: prev[cfg.id].items.length ? 'stale' : 'loading' },
-      }));
-
-      try {
-        const url = `/api/news?topic=${cfg.topic}&window=${newsWindow}&limit=${cfg.limit}&sourceCap=${cfg.sourceCap}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = (await res.json()) as { items?: NewsItem[] };
-        const items: NewsItem[] = Array.isArray(data.items) ? data.items : [];
-
-        let sortedItems = items;
-        if (cfg.priority) {
-          sortedItems = [...items].sort(
-            (a, b) => priorityScore(b) - priorityScore(a) || new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
-          );
-        }
-
-        setNewsCache((prev) => ({
-          ...prev,
-          [cfg.id]: { items: sortedItems, status: 'live' },
-        }));
-      } catch (err) {
-        console.error(`[News load failed for ${cfg.id}]:`, errorMessage(err));
-        setNewsCache((prev) => ({
-          ...prev,
-          [cfg.id]: { ...prev[cfg.id], status: prev[cfg.id].items.length ? 'stale' : 'error' },
-        }));
+    setNewsCache(prev => {
+      const next = { ...prev };
+      for (const cfg of NEWS_PANELS) {
+        next[cfg.id] = { ...next[cfg.id], status: next[cfg.id].items.length ? 'stale' : 'loading' };
       }
+      return next;
     });
+
+    try {
+      const res = await fetch(`/api/news?bundle=1&window=${newsWindow}`);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const bundle = (await res.json()) as NewsBundleResponse;
+      const topics = bundle.topics || {};
+
+      setNewsCache(prev => {
+        const next = { ...prev };
+        for (const cfg of NEWS_PANELS) {
+          const items: NewsItem[] = Array.isArray(topics[cfg.topic]?.items) ? topics[cfg.topic].items : [];
+          const sortedItems = cfg.priority
+            ? [...items].sort(
+                (a, b) =>
+                  priorityScore(b) - priorityScore(a) ||
+                  new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime(),
+              )
+            : items;
+          next[cfg.id] = { items: sortedItems, status: 'live' };
+        }
+        return next;
+      });
+    } catch (err) {
+      console.error('[News bundle load failed]:', errorMessage(err));
+      setNewsCache(prev => {
+        const next = { ...prev };
+        for (const cfg of NEWS_PANELS) {
+          next[cfg.id] = { ...next[cfg.id], status: next[cfg.id].items.length ? 'stale' : 'error' };
+        }
+        return next;
+      });
+    }
   };
 
   useEffect(() => {
@@ -466,18 +485,6 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [playing]);
-
-  const toggleTheme = () => {
-    const target = !darkTheme;
-    setDarkTheme(target);
-    localStorage.setItem('atlas_theme', target ? 'dark' : 'light');
-    document.body.classList.toggle('dark-theme', target);
-  };
-
-  const changeLanguage = (next: 'en' | 'ne') => {
-    setLanguage(next);
-    localStorage.setItem('atlas_language', next);
-  };
 
   // The two media rails.
   //
@@ -525,6 +532,12 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
   };
 
   const ts = new Date(meta.timestamp || new Date());
+  // The sweep states when it ran and how often it repeats, not when it next
+  // runs; the countdown beside the age is derived from the two.
+  const nextSweepAt =
+    meta.timestamp && meta.refreshIntervalMinutes
+      ? new Date(new Date(meta.timestamp).getTime() + meta.refreshIntervalMinutes * 60_000).toISOString()
+      : null;
   const formattedDate = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
   const formattedTime = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
 
@@ -557,18 +570,8 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
     : alertLevel === 'ELEVATED' ? 'PAY ATTENTION'
     : 'NO MAJOR SIGNALS';
 
-  if (booting) {
-    return (
-      <div id="boot" suppressHydrationWarning>
-        <div className="logo-ring" suppressHydrationWarning>
-          <span className="logo-text">ATLAS</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div id="main" className="p-3" suppressHydrationWarning>
+    <div id="main" className="p-3" lang={language} suppressHydrationWarning>
       {/* Topbar */}
       <div className="topbar">
         <div className="top-left">
@@ -587,23 +590,23 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
           </span>
         </div>
         <div className="top-right">
-          <button
-            className="theme-toggle"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${darkTheme ? 'light' : 'dark'} theme`}
-            aria-pressed={darkTheme}
-          >
-            <span className="theme-toggle-label">{darkTheme ? 'Dark' : 'Light'}</span>
-            <span className="theme-switch" aria-hidden="true">
-              <span className="theme-switch-thumb" />
-            </span>
-          </button>
+          <FloodThemeToggle lang={language} />
           <div className="language-toggle" role="group" aria-label="Language">
             <button className={language === 'en' ? 'active' : ''} onClick={() => changeLanguage('en')} aria-pressed={language === 'en'}>EN</button>
             <button className={language === 'ne' ? 'active' : ''} onClick={() => changeLanguage('ne')} aria-pressed={language === 'ne'}>ने</button>
           </div>
-          <span className="meta-pill" suppressHydrationWarning>
-            Updated in <span className="v">{((meta.totalDurationMs || 0) / 1000).toFixed(1)}s</span>
+          {/* How old the figures are, in the terms a reader actually asks the
+              question in. The absolute stamp beside this says when the sweep
+              ran; it does not say whether that was four minutes or four hours
+              ago, and on a hazard dashboard that is the difference that
+              matters. "Updated in 1.2s" was how long the sweep took, which is
+              a fact about Atlas rather than about Nepal. */}
+          <span className="meta-pill fresh-pill" suppressHydrationWarning>
+            <i aria-hidden="true" />
+            Data updated <span className="v">{ageFrom(meta.timestamp, 'en')}</span>
+            {nextSweepAt && nextUpdateLabel(nextSweepAt, 'en', meta.sweeping) ? (
+              <em> · {nextUpdateLabel(nextSweepAt, 'en', meta.sweeping)}</em>
+            ) : null}
           </span>
           <span className="meta-pill" suppressHydrationWarning>
             {formattedDate} <span className="v">{formattedTime}</span>
@@ -615,20 +618,11 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
         </div>
       </div>
 
-      <section className="flood-news-ticker" aria-label={copy('floodNews', language)}>
-        <span className="flood-news-label"><span className="blink" />{copy('floodNews', language)}</span>
-        <div className="flood-news-track">
-          {floodTickerItems.length > 0 ? (
-            [...floodTickerItems, ...floodTickerItems].map((item, index) => (
-              <a key={`${item.link}-${index}`} href={item.link} target="_blank" rel="noopener noreferrer">
-                {cleanText(item.title)} <span>· {item.source}</span>
-              </a>
-            ))
-          ) : (
-            <span>{newsCache['flood-news']?.status === 'loading' ? copy('loadingNews', language) : copy('noFloodNews', language)}</span>
-          )}
-        </div>
-      </section>
+      <FloodNewsTicker
+        lang={language}
+        items={floodTickerItems}
+        status={newsCache['flood-news']?.status}
+      />
 
       <section className="dashboard-intro" aria-labelledby="dashboard-title">
         <div>
@@ -812,6 +806,8 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
           )}
         </div>
       </section>
+
+      <FloodFooter />
 
       {/* Video player. YouTube's own embed — Atlas hosts no video. */}
       {playing && (

@@ -21,7 +21,7 @@ import { join } from 'path';
 import { fetchCorridorGauges } from './flood';
 import { proxyUrlFor } from './news-media';
 import { scheduleCatchup } from './news-digest-store';
-import type { FeedStatus, FloodDeskStore, NewsItem, OpmcmPersonRegister, OpmcmPersonReport } from '@/types';
+import type { DamageImage, FeedStatus, FloodDamageContent, FloodDeskStore, NewsItem, OpmcmPersonRegister, OpmcmPersonReport } from '@/types';
 import { errorMessage } from '@/types';
 
 const DEFAULT_INTERVAL_MINUTES = 10;
@@ -68,6 +68,8 @@ function emptyStore(): FloodDeskStore {
     portal: null,
     videos: null,
     news: [],
+    sitrep: null,
+    damage: null,
     dailyBulletin: null,
     pressReleases: null,
     advisories: null,
@@ -96,6 +98,26 @@ interface CronGlobal {
 }
 const g = globalThis as unknown as CronGlobal;
 
+function proxyBulletinImages(items?: DamageImage[]): DamageImage[] {
+  return (items ?? []).map(item => ({
+    ...item,
+    imageProxy: proxyUrlFor(item.src),
+  }));
+}
+
+/** Sign reviewed and live bulletin images so the desk never hotlinks them. */
+export function proxyDamageMedia(damage: FloodDamageContent | null): FloodDamageContent | null {
+  if (!damage?.copernicus) return damage;
+  return {
+    ...damage,
+    copernicus: {
+      ...damage.copernicus,
+      maps: proxyBulletinImages(damage.copernicus.maps),
+      photos: proxyBulletinImages(damage.copernicus.photos),
+    },
+  };
+}
+
 function runsDir(): string {
   const dir = join(process.cwd(), 'runs');
   try {
@@ -104,6 +126,11 @@ function runsDir(): string {
     console.warn(`[Flood cron] Failed to ensure runs directory exists: ${dir} (filesystem might be read-only)`, errorMessage(err));
   }
   return dir;
+}
+
+/** True while a refresh cycle is in flight. */
+export function isFloodRefreshRunning(): boolean {
+  return Boolean(g.__atlasFloodRunning);
 }
 
 /** The last cycle's results. Never null — an unwarmed store is simply empty. */
@@ -290,6 +317,40 @@ export async function runFloodRefresh(): Promise<FloodDeskStore> {
         },
         value => {
           store.news = value;
+        },
+      ),
+
+      refresh(
+        'sitrep',
+        store,
+        async () => {
+          const { getBulletinSitrep } = await import('@/apis/sources/bulletin-sitrep.mjs');
+          const live = await getBulletinSitrep();
+          // No figures with an error is a failed read, not an emptied toll —
+          // fail so the reviewed figures stay on the page.
+          if (live.error || !live.breakdowns.length) throw new Error(live.error || 'no figures');
+          return live;
+        },
+        value => {
+          store.sitrep = value;
+        },
+      ),
+
+      refresh(
+        'damage',
+        store,
+        async () => {
+          const { getBulletinDamage } = await import('@/apis/sources/bulletin-damage.mjs');
+          const live = await getBulletinDamage();
+          if (live.error || !live.rows.length) throw new Error(live.error || 'no Copernicus table');
+          return {
+            ...live,
+            maps: proxyBulletinImages(live.maps),
+            photos: proxyBulletinImages(live.photos),
+          };
+        },
+        value => {
+          store.damage = value;
         },
       ),
 

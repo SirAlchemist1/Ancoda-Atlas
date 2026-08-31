@@ -3,9 +3,9 @@
 // Two kinds of data, kept separate on purpose:
 //
 //   Reviewed content (content/bhotekoshi-flood/*.json) — helplines, bank
-//   accounts, relief funds, what happened. Changes only through a reviewed
-//   edit, because disaster fundraising scams peak in the first days and an
-//   auto-published donation link would lend Atlas's credibility to one.
+//   accounts, relief funds, in-kind demand, what happened. Changes only through
+//   a reviewed edit, because disaster fundraising scams peak in the first days
+//   and an auto-published donation link would lend Atlas's credibility to one.
 //
 //   Live telemetry (BIPAD Portal) — river levels against each gauge's own
 //   warning and danger thresholds. Published automatically, always stamped
@@ -14,16 +14,18 @@
 import type {
   AffectedDistrictProps,
   FloodContent,
+  FloodDamageContent,
   FloodGauge,
   FloodOrg,
   GaugeLevel,
   GeoCollection,
   RiverGauges,
-  SitrepBreakdown,
+  FloodReliefReceived,
+  FloodReliefNeeded,
   SitrepContent,
-  SitrepDiscrepancy,
 } from '@/types';
 import { errorMessage } from '@/types';
+import { reconcile } from '@/lib/sitrep-merge';
 
 // ─── Reviewed content ───────────────────────────────────────────────────────
 //
@@ -47,6 +49,9 @@ import helplinesJson from '../../content/bhotekoshi-flood/helplines.json';
 import bankAccountsJson from '../../content/bhotekoshi-flood/bank-accounts.json';
 import districtContactsJson from '../../content/bhotekoshi-flood/district-contacts.json';
 import sitrepJson from '../../content/bhotekoshi-flood/sitrep.json';
+import reliefReceivedJson from '../../content/bhotekoshi-flood/relief-received.json';
+import reliefNeededJson from '../../content/bhotekoshi-flood/relief-needed.json';
+import damageJson from '../../content/bhotekoshi-flood/damage.json';
 import districtGeoJson from '../../public/data/flood-affected-districts.json';
 
 import careNepalFund from '../../content/bhotekoshi-flood/relief-funds/care-nepal.json';
@@ -176,46 +181,24 @@ export function loadFloodContent(): FloodContent {
     bankAccounts: content<FloodContent['bankAccounts']>(bankAccountsJson),
     districtContacts: content<FloodContent['districtContacts']>(districtContactsJson),
     sitrep: loadSitrep(),
+    reliefReceived: loadReliefReceived(),
+    reliefNeeded: content<FloodReliefNeeded>(reliefNeededJson),
+    damage: content<FloodDamageContent>(damageJson),
     funds,
   };
 }
 
-/**
- * Re-add every breakdown and report the ones that no longer close.
- *
- * These numbers are compiled by hand from police briefings and NDRRMA reports,
- * under time pressure, during an emergency — whether they reach Atlas through a
- * reviewed edit or through the bulletin scrape. The commonest way that goes
- * wrong is a district being updated without its total, leaving a page that says
- * 469 dead above a list of districts summing to 471. Rather than trust either
- * source, every breakdown is re-added and any that no longer reconciles is
- * reported to the UI, which shows the discrepancy instead of hiding it.
- *
- * Groups whose parts overlap rather than partition the total opt out with
- * `no_total_check`; for them the arithmetic was never meant to close.
- */
-export function reconcile(breakdowns: SitrepBreakdown[] | undefined): SitrepDiscrepancy[] {
-  const discrepancies: SitrepDiscrepancy[] = [];
-  for (const breakdown of breakdowns ?? []) {
-    if (breakdown.no_total_check) continue;
-    const summed = (breakdown.items ?? []).reduce((acc, item) => acc + (item.value || 0), 0);
-    if (summed !== breakdown.total) {
-      discrepancies.push({ id: breakdown.id, stated: breakdown.total, summed });
-    }
-  }
-
-  if (discrepancies.length) {
-    console.error(
-      '[Flood] SitRep figures do not reconcile:',
-      discrepancies.map(d => `${d.id} states ${d.stated}, parts sum to ${d.summed}`).join('; '),
-    );
-  }
-  return discrepancies;
-}
+/** Re-add every sitrep breakdown. Lives next to the live overlay so both share one check. */
+export { reconcile } from '@/lib/sitrep-merge';
 
 function loadSitrep(): SitrepContent {
   const sitrep = content<SitrepContent>(sitrepJson);
   return { ...sitrep, discrepancies: reconcile(sitrep.breakdowns) };
+}
+
+function loadReliefReceived(): FloodReliefReceived {
+  const received = content<FloodReliefReceived>(reliefReceivedJson);
+  return { ...received, discrepancies: reconcile(received.breakdowns) };
 }
 
 /** One station as BIPAD publishes it. Only the fields Atlas reads are listed. */
