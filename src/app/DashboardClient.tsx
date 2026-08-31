@@ -153,7 +153,6 @@ const DASHBOARD_COPY = {
   close: { en: 'Close', ne: 'बन्द' },
   fetching: { en: 'Fetching the latest hazard updates…', ne: 'पछिल्ला विपद् अपडेट ल्याइँदैछ…' },
   fetchingHint: { en: 'Live feeds are buffering — your dashboard will populate in a moment.', ne: 'प्रत्यक्ष फिड लोड हुँदैछ — केही क्षणमा ड्यासबोर्ड भरिनेछ।' },
-  loadingMediaHint: { en: 'Newsrooms and broadcast clips take a moment to gather.', ne: 'समाचार र प्रसारण सामग्री संकलन हुन केही समय लाग्छ।' },
   dictionary: { en: 'Nepal Hazard Dictionary', ne: 'नेपाल विपद् शब्दकोश' },
   lexicon: { en: 'Atlas Hazard Lexicon', ne: 'एट्लस विपद् शब्दावली' },
   guide: { en: 'Guide to natural-hazard triggers and severity thresholds', ne: 'प्राकृतिक विपद्का संकेत र गम्भीरता तहको मार्गदर्शन' },
