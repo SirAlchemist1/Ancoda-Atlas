@@ -11,7 +11,6 @@ import type {
   OpmcmPersonRegister,
 } from '@/types';
 import FloodShell from '@/components/FloodShell';
-import LoadingUI from '@/components/LoadingUI';
 import FloodOpmcmRegister from '@/app/bhotekoshi-flood/rescue/_components/FloodOpmcmRegister';
 import { useFloodLang, type Lang } from '@/hooks/use-flood-lang';
 import { ageFrom } from '@/lib/relative-time';
@@ -342,7 +341,7 @@ export default function FloodRescueView() {
         </div>
 
         {!data ? (
-          <LoadingUI variant="flood" message={t('loading')} />
+          <p className="fl-empty">{t('loading')}</p>
         ) : data.error ? (
           <p className="fl-empty">{t('unavailable')}</p>
         ) : matches.length === 0 ? (

@@ -11,7 +11,6 @@ import FloodAiInsights from '@/app/bhotekoshi-flood/_components/FloodAiInsights'
 import { FloodNav } from '@/components/FloodShell';
 import FloodSummary from '@/app/bhotekoshi-flood/_components/FloodSummary';
 import FloodOfficial from '@/app/bhotekoshi-flood/_components/FloodOfficial';
-import LoadingUI from '@/components/LoadingUI';
 import { useFloodLang } from '@/hooks/use-flood-lang';
 import { ageFrom } from '@/lib/relative-time';
 import type { FloodDeskPayload, FloodPhoto, FloodPhotoFeed } from '@/types';
@@ -298,7 +297,7 @@ export default function BhotekoshiFloodView() {
             rescueFetchedAt={data?.rescueFetchedAt || null}
           />
         ) : (
-          <LoadingUI variant="flood" message={t('loading')} />
+          <p className="fl-empty">{t('loading')}</p>
         )}
 
         <FloodOfficial govEfforts={data?.govEfforts} dailyBulletin={data?.dailyBulletin} lang={lang} />

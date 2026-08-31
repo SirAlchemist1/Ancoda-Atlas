@@ -245,6 +245,19 @@ body {
   border-radius: 4px;
 }
 
+.atlas-loading--pending {
+  padding: 0;
+}
+
+.atlas-loading--pending.atlas-loading--map {
+  min-height: 320px;
+}
+
+.atlas-loading--pending.atlas-loading--inline {
+  min-height: 0;
+  padding: 0;
+}
+
 .atlas-loading--boot {
   margin-top: 28px;
   padding: 0;

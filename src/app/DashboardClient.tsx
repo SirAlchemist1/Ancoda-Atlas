@@ -568,6 +568,7 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
         </div>
         <LoadingUI
           variant="boot"
+          delayMs={0}
           message={copy('fetching', language)}
           hint={copy('fetchingHint', language)}
         />
@@ -678,6 +679,7 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
                   <div className="news-empty">
                     <LoadingUI
                       variant="inline"
+                      active
                       message={copy('fetching', language)}
                       hint={copy('fetchingHint', language)}
                     />
@@ -751,8 +753,8 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
               {newsLoading ? (
                 <LoadingUI
                   variant="inline"
+                  active
                   message={copy('loadingMedia', language)}
-                  hint={copy('loadingMediaHint', language)}
                 />
               ) : (
                 copy('noPhotos', language)
@@ -814,8 +816,8 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
               {videoFeed === null ? (
                 <LoadingUI
                   variant="inline"
+                  active
                   message={copy('loadingMedia', language)}
-                  hint={copy('loadingMediaHint', language)}
                 />
               ) : (
                 copy('noVideos', language)

@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import LoadingUI from '@/components/LoadingUI';
 import type { Lang } from '@/hooks/use-flood-lang';
 import { ageLabel } from '@/lib/relative-time';
 import type { FloodGauge, RiverGauges } from '@/types';
@@ -89,7 +88,7 @@ export default function FloodRiverGauges({ river, lang }: { river: RiverGauges |
       <p className="fl-note">{t('hint')}</p>
 
       {!river ? (
-        <LoadingUI variant="flood" message={t('loading')} />
+        <p className="fl-empty">{t('loading')}</p>
       ) : river.error ? (
         <p className="fl-empty">{t('unavailable')}</p>
       ) : (

@@ -935,6 +935,7 @@ export default function NepalSignalsMap({ stories, bipadData }: NepalSignalsMapP
     return (
       <LoadingUI
         variant="map"
+        active
         message="Loading Nepal map…"
         hint="Drawing boundaries and connecting to BIPAD live telemetry."
       />

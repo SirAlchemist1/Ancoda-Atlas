@@ -6,7 +6,6 @@ import { ageFrom } from '@/lib/relative-time';
 import type { OpmcmPersonRegister, OpmcmPersonReport } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import LoadingUI from '@/components/LoadingUI';
 
 // The OPMCM rescue portal's missing-and-found register.
 //
@@ -160,7 +159,7 @@ export default function FloodOpmcmRegister({
       />
 
       {!register ? (
-        <LoadingUI variant="flood" message={t('loading')} />
+        <p className="fl-empty">{t('loading')}</p>
       ) : register.error && !list.length ? (
         <p className="fl-empty">{t('unavailable')}</p>
       ) : rows.length === 0 ? (

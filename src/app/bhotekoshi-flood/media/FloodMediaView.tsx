@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from 'react';
 import FloodShell from '@/components/FloodShell';
-import LoadingUI from '@/components/LoadingUI';
 import { useFloodLang } from '@/hooks/use-flood-lang';
 import { ageFrom } from '@/lib/relative-time';
 import type {
@@ -138,7 +137,7 @@ export default function FloodMediaView() {
         </p>
 
         {!videoFeed ? (
-          <LoadingUI variant="flood" message={t('loading')} />
+          <p className="fl-empty">{t('loading')}</p>
         ) : liveVideos.length === 0 ? (
           <p className="fl-empty">{lang === 'ne' ? 'अहिले प्रत्यक्ष च्यानल उपलब्ध छैन।' : 'No live broadcast channels available right now.'}</p>
         ) : (
@@ -224,7 +223,7 @@ export default function FloodMediaView() {
         </div>
 
         {news === null ? (
-          <LoadingUI variant="flood" message={t('loading')} />
+          <p className="fl-empty">{t('loading')}</p>
         ) : news.length === 0 ? (
           <p className="fl-empty">{t('noNews')}</p>
         ) : (
@@ -289,7 +288,7 @@ export default function FloodMediaView() {
         <p className="fl-note">{t('broadcastHint')}</p>
 
         {!videoFeed ? (
-          <LoadingUI variant="flood" message={t('loading')} />
+          <p className="fl-empty">{t('loading')}</p>
         ) : videos.length === 0 ? (
           <p className="fl-empty">{t('noVideo')}</p>
         ) : (
