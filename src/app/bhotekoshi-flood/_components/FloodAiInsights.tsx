@@ -5,6 +5,7 @@ import { Check, ChevronsUpDown } from 'lucide-react';
 import type { FloodInsightFeed } from '@/types';
 import { ageFrom } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
+import LoadingUI from '@/components/LoadingUI';
 import {
   NEPAL_LANGUAGES,
   WORLD_LANGUAGES,
@@ -182,7 +183,7 @@ export default function FloodAiInsights({ lang }: Props) {
       </div>
 
       {feed === null ? (
-        <p className="fl-empty">{t('loading')}</p>
+        <LoadingUI variant="flood" message={t('loading')} />
       ) : !insight ? (
         <p className="fl-empty">{feed.reason === 'no_reporting' ? t('none') : t('unavailable')}</p>
       ) : (

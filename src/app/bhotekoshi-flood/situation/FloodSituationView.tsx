@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import FloodShell from '@/components/FloodShell';
+import LoadingUI from '@/components/LoadingUI';
 import FloodRiverGauges from '@/app/bhotekoshi-flood/situation/_components/FloodRiverGauges';
 import { useFloodLang } from '@/hooks/use-flood-lang';
 import { ageFrom } from '@/lib/relative-time';
@@ -261,7 +262,7 @@ export default function FloodSituationView() {
         </div>
         <p className="fl-note">{t('alertsHint')}</p>
         {!data ? (
-          <p className="fl-empty">{t('loading')}</p>
+          <LoadingUI variant="flood" message={t('loading')} />
         ) : alerts.length === 0 ? (
           <p className="fl-empty">{t('noAlerts')}</p>
         ) : (
@@ -403,7 +404,7 @@ export default function FloodSituationView() {
         </div>
 
         {!data ? (
-          <p className="fl-empty">{t('loading')}</p>
+          <LoadingUI variant="flood" message={t('loading')} />
         ) : data.corridor.error ? (
           <p className="fl-empty">{t('unavailable')}</p>
         ) : (

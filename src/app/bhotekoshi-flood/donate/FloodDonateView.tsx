@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import FloodShell from '@/components/FloodShell';
+import LoadingUI from '@/components/LoadingUI';
 import { useFloodLang } from '@/hooks/use-flood-lang';
 import type { Lang } from '@/hooks/use-flood-lang';
 import type { FloodBank, FloodDeskPayload, FloodOfficialFeed, PortalDonationChannel } from '@/types';
@@ -221,7 +222,7 @@ export default function FloodDonateView() {
         <p className="fl-warn">{t('warn')}</p>
 
         {!data ? (
-          <p className="fl-empty">{t('loading')}</p>
+          <LoadingUI variant="flood" message={t('loading')} />
         ) : (
           <>
             {primaryFund && heroBank && (

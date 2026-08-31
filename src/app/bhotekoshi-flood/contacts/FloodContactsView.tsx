@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import FloodShell from '@/components/FloodShell';
+import LoadingUI from '@/components/LoadingUI';
 import { useFloodLang } from '@/hooks/use-flood-lang';
 import { ageFrom } from '@/lib/relative-time';
 import type { BipadDistrictContacts, FloodDeskPayload, FloodDistrictContacts, FloodOfficialFeed } from '@/types';
@@ -121,7 +122,7 @@ export default function FloodContactsView() {
         </div>
 
         {!data ? (
-          <p className="fl-empty">{t('loading')}</p>
+          <LoadingUI variant="flood" message={t('loading')} />
         ) : (
           <>
             <div className="fl-calls">

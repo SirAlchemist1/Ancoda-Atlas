@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import NepalSignalsMap from '@/components/NepalSignalsMap';
+import LoadingUI from '@/components/LoadingUI';
 import BhotekoshiFloodButton from '@/app/_components/BhotekoshiFloodButton';
 import type {
   HazardSnapshot,
@@ -151,6 +152,8 @@ const DASHBOARD_COPY = {
   watchOnYouTube: { en: 'Watch on YouTube', ne: 'युट्युबमा हेर्नुहोस्' },
   close: { en: 'Close', ne: 'बन्द' },
   fetching: { en: 'Fetching the latest hazard updates…', ne: 'पछिल्ला विपद् अपडेट ल्याइँदैछ…' },
+  fetchingHint: { en: 'Live feeds are buffering — your dashboard will populate in a moment.', ne: 'प्रत्यक्ष फिड लोड हुँदैछ — केही क्षणमा ड्यासबोर्ड भरिनेछ।' },
+  loadingMediaHint: { en: 'Newsrooms and broadcast clips take a moment to gather.', ne: 'समाचार र प्रसारण सामग्री संकलन हुन केही समय लाग्छ।' },
   dictionary: { en: 'Nepal Hazard Dictionary', ne: 'नेपाल विपद् शब्दकोश' },
   lexicon: { en: 'Atlas Hazard Lexicon', ne: 'एट्लस विपद् शब्दावली' },
   guide: { en: 'Guide to natural-hazard triggers and severity thresholds', ne: 'प्राकृतिक विपद्का संकेत र गम्भीरता तहको मार्गदर्शन' },
@@ -563,6 +566,11 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
         <div className="logo-ring" suppressHydrationWarning>
           <span className="logo-text">ATLAS</span>
         </div>
+        <LoadingUI
+          variant="boot"
+          message={copy('fetching', language)}
+          hint={copy('fetchingHint', language)}
+        />
       </div>
     );
   }
@@ -666,7 +674,17 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
             </div>
             <div className="news-list" suppressHydrationWarning>
               {(newsCache['live-hazard']?.items || []).length === 0 ? (
-                <div className="news-empty">{copy('fetching', language)}</div>
+                newsCache['live-hazard']?.status === 'loading' ? (
+                  <div className="news-empty">
+                    <LoadingUI
+                      variant="inline"
+                      message={copy('fetching', language)}
+                      hint={copy('fetchingHint', language)}
+                    />
+                  </div>
+                ) : (
+                  <div className="news-empty">{copy('fetching', language)}</div>
+                )
               ) : (
                 (newsCache['live-hazard']?.items || []).slice(0, 8).map((item, idx) => {
                   const isClickable = !!item.link;
@@ -730,7 +748,15 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
 
           {newsPhotos.length === 0 ? (
             <div className="media-rail-empty">
-              {newsLoading ? copy('loadingMedia', language) : copy('noPhotos', language)}
+              {newsLoading ? (
+                <LoadingUI
+                  variant="inline"
+                  message={copy('loadingMedia', language)}
+                  hint={copy('loadingMediaHint', language)}
+                />
+              ) : (
+                copy('noPhotos', language)
+              )}
             </div>
           ) : (
             <div className="media-rail-track" ref={photoRailRef}>
@@ -785,7 +811,15 @@ export default function DashboardClient({ initialData }: DashboardClientProps) {
 
           {newsVideos.length === 0 ? (
             <div className="media-rail-empty">
-              {videoFeed === null ? copy('loadingMedia', language) : copy('noVideos', language)}
+              {videoFeed === null ? (
+                <LoadingUI
+                  variant="inline"
+                  message={copy('loadingMedia', language)}
+                  hint={copy('loadingMediaHint', language)}
+                />
+              ) : (
+                copy('noVideos', language)
+              )}
             </div>
           ) : (
             <div className="media-rail-track" ref={videoRailRef}>
